@@ -1,0 +1,4 @@
+{
+  "name": "files",
+  "description": "顯示卡片上的 claude session 用 SendUserFile 送出的檔案:透過 claude hook 捕捉,存進卡片的檔案區,卡片詳情多一個 Files 區塊可直接下載。"
+}

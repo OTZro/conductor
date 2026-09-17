@@ -1,0 +1,4 @@
+{
+  "name": "marketplace",
+  "description": "第三方 plugin 市集:從設定的 index.json 或自訂 repo 瀏覽、安裝、更新、移除 plugin(以 git tag 版本管理),裝好後用同一個「套用並重啟」按鈕生效。"
+}

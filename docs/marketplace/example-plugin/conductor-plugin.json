@@ -1,0 +1,8 @@
+{
+  "name": "example-plugin",
+  "version": "v1.0.0",
+  "description": "Minimal starter plugin — a menu-bar clock showing the backend's server time.",
+  "author": "Your Name <you@example.com>",
+  "backend": true,
+  "frontend": true
+}

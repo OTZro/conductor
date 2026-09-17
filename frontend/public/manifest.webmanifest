@@ -1,0 +1,12 @@
+{
+  "name": "Conductor",
+  "short_name": "Conductor",
+  "description": "Single-user cockpit over Jira + GitHub + Slack",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

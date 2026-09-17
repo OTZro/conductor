@@ -1,0 +1,4 @@
+{
+  "name": "stages",
+  "description": "卡片的手動「移到 stage」控制,放在卡片 header 動作列。手動 park 優先於自動 lane 判定,等待中的 claude 仍會顯示在卡片上。"
+}

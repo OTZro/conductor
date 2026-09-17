@@ -1,0 +1,4 @@
+{
+  "name": "fork",
+  "description": "終端機 ⋯ 選單的「fork」動作:把這張卡正在進行的 claude 對話複製到第二個 tmux window,平行嘗試另一條路線而不打斷原本的 session。"
+}

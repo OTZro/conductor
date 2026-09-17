@@ -1,0 +1,11 @@
+{
+  "slack_brief_thread": "下面是 Slack 上一串討論(依時間排序,最後有人 @我{who} 或 @我所屬群組)。綜合整串脈絡,用一句話(繁體中文)說明對方要我做什麼或決定什麼,直接講重點、不要前言或客套:",
+  "slack_brief_single": "下面是 Slack 上 @我{who}、或 @我所屬群組(@channel/@develop 之類)的訊息。用一句話(繁體中文)說明對方要我做什麼或決定什麼,直接講重點、不要前言或客套:",
+  "pr_brief": "下面是一支 GitHub PR 的說明,以及我對它的最新 review(通常由我的 AI 代理代發)。用繁體中文分兩點總結,直接講重點、精簡、不要前言與客套:\n1. 這支 PR 在做什麼(1-2 句)\n2. 我的 review 結論:先講 verdict(APPROVE / REQUEST_CHANGES / COMMENT),再用一句話說理由。若我尚未 review 就寫「我尚未 review」\n\n## PR: {title}\n{body}\n\n## My review:\n{review}",
+  "seed_slack_mention": "我在 Slack 被 mention:\n{text}",
+  "seed_slack_link": "Slack 連結: {url}",
+  "seed_slack_gist": "(重點:{brief})",
+  "seed_slack_closing": "請幫我處理這件事;不清楚的地方先問我。",
+  "handover_write": "請把目前這個任務的交接文件寫到 ~/.conductor/handover/{cid}.md,涵蓋:目標/為什麼、現況(做完什麼、正在做什麼)、code 在哪(branch + 最新幾個 commit,有沒有未 push 的)、下一步(有序清單)、關鍵檔案、已定案的決策、踩過的坑、怎麼驗證。寫完把需要的改動 git commit 並 push,然後告訴我 handover 準備好了。",
+  "handover_pickup": "你要從另一台機器接手一個任務。先讀 ~/.conductor/handover/{cid}.md 了解完整 context 和下一步(裡面會寫 branch),依它把 code git pull / checkout 到對的 branch 拉到最新,再接著做。不清楚的地方先問我。"
+}

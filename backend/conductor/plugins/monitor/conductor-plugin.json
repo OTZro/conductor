@@ -1,0 +1,4 @@
+{
+  "name": "monitor",
+  "description": "主機資源監控:各機器的 CPU / 記憶體 / 負載,一個獨立分頁加 header 摘要 widget,自己輪詢 /api/metrics。"
+}

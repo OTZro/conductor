@@ -1,0 +1,16 @@
+{
+  "plugins": [
+    {
+      "name": "example-plugin",
+      "repo": "your-org/conductor-example-plugin",
+      "description": "Minimal starter plugin — a menu-bar clock. See docs/marketplace/example-plugin/ for its source.",
+      "tags": ["example"]
+    },
+    {
+      "name": "weather-menu",
+      "repo": "https://git.example.com/team/conductor-weather-menu.git",
+      "description": "Shows current weather for a configured city in the menu bar.",
+      "tags": ["menu-bar", "weather"]
+    }
+  ]
+}

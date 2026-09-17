@@ -1,0 +1,4 @@
+{
+  "name": "updater",
+  "description": "header 的自我更新 widget:conductor 落後 upstream 時亮起,一鍵 git pull + 依賴安裝 + 前端重建 + 重啟,背景每 30 分鐘檢查一次。"
+}

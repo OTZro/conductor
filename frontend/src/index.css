@@ -1,0 +1,227 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme tokens ────────────────────────────────────────────────────────────
+   Values are SPACE-SEPARATED RGB CHANNELS, not hex: tailwind.config.js consumes
+   them as `rgb(var(--z-800) / <alpha-value>)`, which is what keeps opacity
+   modifiers (bg-zinc-900/40, bg-state-ai/20) working. A plain hex in a var()
+   would silently break every one of those.
+
+   THE NEUTRAL RAMP IS INVERTED FOR LIGHT MODE, not remapped per component. The
+   app has ~600 raw `zinc-*` usages; overriding the RAMP flips all of them at once
+   and keeps every pair's relative contrast intact (bg-zinc-950 stays the page,
+   text-zinc-100 stays the brightest text, border-zinc-800 stays a subtle hairline).
+   That's why light mode needed no per-file colour migration.
+
+   Accents are pinned to the 400 weights on dark and the 600 weights on light —
+   a 400 accent on white is legible but weak, and contrast is the whole point. */
+:root {
+  color-scheme: dark;
+  --z-50: 250 250 250;
+  --z-100: 244 244 245;
+  --z-200: 228 228 231;
+  --z-300: 212 212 216;
+  --z-400: 161 161 170;
+  --z-500: 113 113 122;
+  --z-600: 82 82 91;
+  --z-700: 63 63 70;
+  --z-800: 39 39 42;
+  --z-900: 24 24 27;
+  --z-950: 9 9 11;
+
+  --a-blue: 96 165 250;
+  --a-purple: 192 132 252;
+  --a-emerald: 52 211 153;
+  --a-amber: 251 191 36;
+  --a-sky: 56 189 248;
+  --a-red: 248 113 113;
+  --a-cyan: 34 211 238;
+  --a-violet: 167 139 250;
+
+  /* RAW HUE LIGHT END — the same wholesale-override trick the zinc ramp uses, for the
+     same reason: ~130 `text-emerald-300` / `text-amber-200` style usages predate the
+     token layer, six of them in gitignored local plugins that no migration in this repo
+     could reach. Overriding the SHADES themselves themes all of them at once.
+
+     Only 50-400 are redirected, and only these mirror in light mode (50↔950 … 400↔600).
+     That split is not arbitrary: shades 50-300 are used exclusively as text and borders
+     (verified — zero `bg-<hue>-{50,100,200,300}` in the tree), so darkening them in light
+     mode can only help, while 500+ carry the solid fills (`bg-sky-600` + white text) that
+     must NOT flip or the button loses its own label. 400 sits on the line — it appears as
+     both status-dot fill and text, and both read better darkened on a white page. */
+  /* emerald */
+  --h-emerald-50: 236 253 245;
+  --h-emerald-100: 209 250 229;
+  --h-emerald-200: 167 243 208;
+  --h-emerald-300: 110 231 183;
+  --h-emerald-400: 52 211 153;
+  /* amber */
+  --h-amber-50: 255 251 235;
+  --h-amber-100: 254 243 199;
+  --h-amber-200: 253 230 138;
+  --h-amber-300: 252 211 77;
+  --h-amber-400: 251 191 36;
+  /* sky */
+  --h-sky-50: 240 249 255;
+  --h-sky-100: 224 242 254;
+  --h-sky-200: 186 230 253;
+  --h-sky-300: 125 211 252;
+  --h-sky-400: 56 189 248;
+  /* red */
+  --h-red-50: 254 242 242;
+  --h-red-100: 254 226 226;
+  --h-red-200: 254 202 202;
+  --h-red-300: 252 165 165;
+  --h-red-400: 248 113 113;
+  /* violet */
+  --h-violet-50: 245 243 255;
+  --h-violet-100: 237 233 254;
+  --h-violet-200: 221 214 254;
+  --h-violet-300: 196 181 253;
+  --h-violet-400: 167 139 250;
+  /* cyan */
+  --h-cyan-50: 236 254 255;
+  --h-cyan-100: 207 250 254;
+  --h-cyan-200: 165 243 252;
+  --h-cyan-300: 103 232 249;
+  --h-cyan-400: 34 211 238;
+  /* blue */
+  --h-blue-50: 239 246 255;
+  --h-blue-100: 219 234 254;
+  --h-blue-200: 191 219 254;
+  --h-blue-300: 147 197 253;
+  --h-blue-400: 96 165 250;
+  /* purple */
+  --h-purple-50: 250 245 255;
+  --h-purple-100: 243 232 255;
+  --h-purple-200: 233 213 255;
+  --h-purple-300: 216 180 254;
+  --h-purple-400: 192 132 252;
+  /* teal */
+  --h-teal-50: 240 253 250;
+  --h-teal-100: 204 251 241;
+  --h-teal-200: 153 246 228;
+  --h-teal-300: 94 234 212;
+  --h-teal-400: 45 212 191;
+  /* indigo */
+  --h-indigo-50: 238 242 255;
+  --h-indigo-100: 224 231 255;
+  --h-indigo-200: 199 210 254;
+  --h-indigo-300: 165 180 252;
+  --h-indigo-400: 129 140 248;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  /* the ramp, reversed: 950 (the page) becomes the lightest, 50 the darkest.
+     500 is the midpoint and is deliberately identical in both themes. */
+  --z-50: 9 9 11;
+  --z-100: 24 24 27;
+  --z-200: 39 39 42;
+  --z-300: 63 63 70;
+  --z-400: 82 82 91;
+  --z-500: 113 113 122;
+  /* the light end carries the SURFACES, and a straight mirror of the dark values left
+     them indistinguishable: page 250 vs raised panel 244 is a 6/255 step (the dark side
+     gets 9 vs 24 — nearly triple), and a 228 hairline on a 250 page is barely a line at
+     all. Widened here, which is what "light mode looks washed out" actually was. */
+  --z-600: 150 150 160;
+  --z-700: 200 200 208;
+  --z-800: 224 224 230;
+  --z-900: 245 245 247;
+  --z-950: 255 255 255;
+
+  --a-blue: 37 99 235;
+  --a-purple: 147 51 234;
+  --a-emerald: 5 150 105;
+  --a-amber: 217 119 6;
+  --a-sky: 2 132 199;
+  --a-red: 220 38 38;
+  --a-cyan: 8 145 178;
+  --a-violet: 124 58 237;
+
+  /* the light end of every raw hue, mirrored onto the dark end — see the note above */
+  /* emerald */
+  --h-emerald-50: 2 44 34;
+  --h-emerald-100: 6 78 59;
+  --h-emerald-200: 6 95 70;
+  --h-emerald-300: 4 120 87;
+  --h-emerald-400: 5 150 105;
+  /* amber */
+  --h-amber-50: 69 26 3;
+  --h-amber-100: 120 53 15;
+  --h-amber-200: 146 64 14;
+  --h-amber-300: 180 83 9;
+  --h-amber-400: 217 119 6;
+  /* sky */
+  --h-sky-50: 8 47 73;
+  --h-sky-100: 12 74 110;
+  --h-sky-200: 7 89 133;
+  --h-sky-300: 3 105 161;
+  --h-sky-400: 2 132 199;
+  /* red */
+  --h-red-50: 69 10 10;
+  --h-red-100: 127 29 29;
+  --h-red-200: 153 27 27;
+  --h-red-300: 185 28 28;
+  --h-red-400: 220 38 38;
+  /* violet */
+  --h-violet-50: 46 16 101;
+  --h-violet-100: 76 29 149;
+  --h-violet-200: 91 33 182;
+  --h-violet-300: 109 40 217;
+  --h-violet-400: 124 58 237;
+  /* cyan */
+  --h-cyan-50: 8 51 68;
+  --h-cyan-100: 22 78 99;
+  --h-cyan-200: 21 94 117;
+  --h-cyan-300: 14 116 144;
+  --h-cyan-400: 8 145 178;
+  /* blue */
+  --h-blue-50: 23 37 84;
+  --h-blue-100: 30 58 138;
+  --h-blue-200: 30 64 175;
+  --h-blue-300: 29 78 216;
+  --h-blue-400: 37 99 235;
+  /* purple */
+  --h-purple-50: 59 7 100;
+  --h-purple-100: 88 28 135;
+  --h-purple-200: 107 33 168;
+  --h-purple-300: 126 34 206;
+  --h-purple-400: 147 51 234;
+  /* teal */
+  --h-teal-50: 4 47 46;
+  --h-teal-100: 19 78 74;
+  --h-teal-200: 17 94 89;
+  --h-teal-300: 15 118 110;
+  --h-teal-400: 13 148 136;
+  /* indigo */
+  --h-indigo-50: 30 27 75;
+  --h-indigo-100: 49 46 129;
+  --h-indigo-200: 55 48 163;
+  --h-indigo-300: 67 56 202;
+  --h-indigo-400: 79 70 229;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  /* kill mobile pull-to-refresh / overscroll-chaining */
+  overscroll-behavior: none;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--z-950));
+  color: rgb(var(--z-200));
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

@@ -1,0 +1,4 @@
+{
+  "name": "manager",
+  "description": "這個管理面板本身:啟用/停用每個 plugin、匯入(zip / GitHub)、匯出、版本檢查與更新、移除,以及套用變更的重啟按鈕。"
+}

@@ -1,0 +1,4 @@
+{
+  "name": "counts",
+  "description": "header 的 lane 數量 chips:待處理 ★ / backlog / AI 進行中,加上目前有卡片的自訂 lane。純顯示,讀取 core 轉發的 counts/lanes,不呼叫後端 API。"
+}

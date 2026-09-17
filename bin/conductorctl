@@ -1,0 +1,327 @@
+#!/usr/bin/env bash
+# conductorctl — the ONE way to manage the Conductor backend + postgres.
+#
+# The backend runs as a launchd agent (KeepAlive): it survives crashes and login,
+# and restarts are `launchctl kickstart` — never `pkill uvicorn`, which has a
+# history of killing unrelated instances (the 2026-07-07 8787/8788 incident).
+#
+#   conductorctl bootstrap  from-scratch: check host tools, then .env + venv + postgres
+#                           + frontend build + launchd (tools you install yourself — see
+#                           docs/setup.md; re-run after installing the missing ones)
+#   conductorctl setup      lighter onboarding: .env + deps check + postgres (no build)
+#   conductorctl doctor     check host deps + CLI auth (read-only)
+#   conductorctl install    render the launchd plist + start (idempotent)
+#   conductorctl start      start (or ensure running)
+#   conductorctl stop       stop the backend (postgres stays up)
+#   conductorctl restart    restart the backend (picks up new code)
+#   conductorctl update     self-update: git pull --ff-only + deps (if changed) + restart.
+#                           Refuses unless the upstream remote is this repo — a fork sets
+#                           CONDUCTOR_UPDATE_REPO=github.com/<owner>/<repo> to allow its own.
+#   conductorctl status     backend + db + health in one glance
+#   conductorctl logs       tail the backend log
+#   conductorctl db         ensure postgres container is up
+set -euo pipefail
+
+LABEL="co.conductor.backend"
+BK_LABEL="co.conductor.backup"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+BK_PLIST="$HOME/Library/LaunchAgents/$BK_LABEL.plist"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOGDIR="$HOME/.conductor/logs"
+BKDIR="$HOME/.conductor/backups"
+UID_N="$(id -u)"
+# launchd agents get a bare PATH; the backend spawns tmux/ttyd/gh/acli/ssh/docker.
+AGENT_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
+
+render_plist() {
+  mkdir -p "$LOGDIR" "$(dirname "$PLIST")"
+  cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$ROOT/backend/.venv/bin/uvicorn</string>
+    <string>conductor.main:app</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>8787</string>
+    <string>--no-access-log</string>
+  </array>
+  <key>WorkingDirectory</key><string>$ROOT/backend</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$AGENT_PATH</string>
+    <key>HOME</key><string>$HOME</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$LOGDIR/backend.log</string>
+  <key>StandardErrorPath</key><string>$LOGDIR/backend.log</string>
+</dict>
+</plist>
+EOF
+}
+
+render_backup_plist() {
+  mkdir -p "$(dirname "$BK_PLIST")"
+  cat > "$BK_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$BK_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$ROOT/bin/conductorctl</string>
+    <string>backup</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>$AGENT_PATH</string></dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>30</integer></dict>
+  <key>StandardOutPath</key><string>$LOGDIR/backup.log</string>
+  <key>StandardErrorPath</key><string>$LOGDIR/backup.log</string>
+</dict>
+</plist>
+EOF
+}
+
+loaded() { launchctl print "gui/$UID_N/$LABEL" >/dev/null 2>&1; }
+
+# --- host dependency checks (shared by `doctor` + `bootstrap`) ---
+# _missing_cmds counts REQUIRED commands not on PATH — the hard gate for bootstrap.
+_missing_cmds=0
+_check_cmd() { # _check_cmd <command> <how-to-get-it>
+  if command -v "$1" >/dev/null 2>&1; then echo "  ✓ $1"; else echo "  ✗ $1 — $2"; _missing_cmds=$((_missing_cmds + 1)); fi
+}
+report_commands() { # print the command table + set _missing_cmds. Full install guide: docs/setup.md
+  _missing_cmds=0
+  echo "commands:"
+  _check_cmd docker "Docker/OrbStack — Postgres runs in a container"
+  _check_cmd uv "Astral uv — backend venv + Python (curl -LsSf https://astral.sh/uv/install.sh | sh)"
+  _check_cmd node "Node 18+ — frontend build (brew install node)"
+  _check_cmd acli "Atlassian CLI (Jira) — then: acli jira auth login"
+  _check_cmd gh "GitHub CLI (brew install gh) — then: gh auth login"
+  _check_cmd claude "Claude Code CLI (per-card sessions + AI briefs)"
+  _check_cmd tmux "brew install tmux"
+  _check_cmd ttyd "brew install ttyd (in-browser terminals)"
+}
+report_auth() { # CLI login + optional slack — informational (interactive; you do these, not bootstrap)
+  echo "auth:"
+  if gh auth status >/dev/null 2>&1; then echo "  ✓ gh authed"; else echo "  · gh not authed — gh auth login (PR lane stays empty until then)"; fi
+  if acli jira workitem search --jql "assignee = currentUser()" --limit 1 >/dev/null 2>&1; then
+    echo "  ✓ acli/jira authed"
+  else echo "  · acli/jira not authed — acli jira auth login (board stays empty until then)"; fi
+  if [ -f "$ROOT/.env" ] && grep -qE "^CONDUCTOR_SLACK_TOKEN=.+" "$ROOT/.env"; then
+    echo "  ✓ .env has a slack token (uid + name auto-derived)"
+  else echo "  · slack token not set (optional — slack cards stay off)"; fi
+}
+
+ensure_frontend_built() { # restart reloads the BACKEND only; rebuild the UI here when the
+  # built bundle is older than its source — a pull that touched frontend/ would otherwise
+  # silently ship a stale UI (a picker vanishes, a hardcoded default resurfaces). Gated on
+  # staleness, so a backend-only restart stays instant.
+  local src="$ROOT/frontend/src" dist="$ROOT/frontend/dist"
+  [ -d "$src" ] || return 0  # not a source checkout → nothing to build
+  if [ -f "$dist/index.html" ] && [ -z "$(find "$src" -type f -newer "$dist/index.html" 2>/dev/null | head -1)" ]; then
+    return 0  # dist is up to date — nothing to do
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "⚠  frontend/dist is stale but npm isn't on PATH — rebuild manually:" >&2
+    echo "     npm --prefix $ROOT/frontend run build   (then reload the browser)" >&2
+    return 0
+  fi
+  echo "→ frontend/dist is stale — rebuilding the UI (npm run build)…"
+  local log; log=$(mktemp "${TMPDIR:-/tmp}/conductorctl-build.XXXXXX")  # explicit template: BSD mktemp wants one
+  if npm --prefix "$ROOT/frontend" run build >"$log" 2>&1; then
+    echo "  frontend rebuilt — reload the browser to pick it up"
+  else
+    echo "⚠  frontend build FAILED (backend still restarted); last lines:" >&2
+    tail -n 15 "$log" >&2
+    echo "   fix, then: npm --prefix $ROOT/frontend run build  (if deps changed, add 'ci' first)" >&2
+  fi
+  rm -f "$log"
+}
+
+case "${1:-status}" in
+  install)
+    "$0" db
+    render_plist
+    render_backup_plist
+    if loaded; then
+      launchctl kickstart -k "gui/$UID_N/$LABEL"
+    else
+      launchctl bootstrap "gui/$UID_N" "$PLIST"
+    fi
+    launchctl bootout "gui/$UID_N/$BK_LABEL" 2>/dev/null || true
+    launchctl bootstrap "gui/$UID_N" "$BK_PLIST"
+    echo "installed + started ($LABEL, $BK_LABEL @03:30)"
+    ensure_frontend_built
+    ;;
+  backup)
+    mkdir -p "$BKDIR"
+    out="$BKDIR/conductor-$(date +%F).sql.gz"
+    docker exec conductor-postgres pg_dump -U conductor conductor | gzip > "$out"
+    find "$BKDIR" -name 'conductor-*.sql.gz' -mtime +14 -delete
+    echo "$(date '+%F %T') backup ok: $out ($(du -h "$out" | cut -f1))"
+    ;;
+  start)
+    "$0" db
+    if loaded; then launchctl kickstart "gui/$UID_N/$LABEL"; else launchctl bootstrap "gui/$UID_N" "$PLIST"; fi
+    echo "started"
+    ensure_frontend_built
+    ;;
+  stop)
+    loaded && launchctl bootout "gui/$UID_N/$LABEL" && echo "stopped" || echo "not running"
+    ;;
+  restart)
+    if loaded; then launchctl kickstart -k "gui/$UID_N/$LABEL"; echo "restarted"; ensure_frontend_built; else "$0" start; fi
+    ;;
+  update)  # self-update: fast-forward the checkout, sync deps only if their locks moved, restart
+    cd "$ROOT"
+    upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) || {
+      echo "✗ current branch has no upstream — can't auto-update" >&2; exit 1
+    }
+    # An upstream EXISTING is not the same as it pointing somewhere trustworthy. One click
+    # here pulls code and runs the new lockfiles' install scripts, so anything that can write
+    # .git/config (a bad postinstall from an earlier update, a synced dotfiles repo) could
+    # repoint origin and get that code executed with nothing visible in the UI. Pin the remote
+    # to this repo; a fork sets CONDUCTOR_UPDATE_REPO=github.com/<owner>/<repo> to allow its own.
+    remote=${upstream%%/*}
+    remote_url=$(git remote get-url "$remote" 2>/dev/null || true)
+    # normalize scp-style, ssh:// and https:// forms down to host/owner/repo
+    remote_id=$(printf '%s' "$remote_url" \
+      | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#^[^@/]*@##; s#:#/#; s#\.git$##; s#/+$##')
+    expect_id=${CONDUCTOR_UPDATE_REPO:-github.com/your-org/conductor}
+    if [ "$remote_id" != "$expect_id" ]; then
+      echo "✗ upstream remote '$remote' is ${remote_url:-unset} (→ ${remote_id:-?}), not $expect_id" >&2
+      echo "  refusing to pull and execute code from an unexpected remote" >&2
+      exit 1
+    fi
+    # -uno: ignore untracked (dist/.env/… are gitignored anyway) — only a tracked-file
+    # edit can conflict with a fast-forward, and clobbering one is never this command's job.
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+      echo "✗ tracked files have local changes — refusing to auto-update (commit or stash first)" >&2; exit 1
+    fi
+    before=$(git rev-parse HEAD)
+    echo "→ git pull --ff-only"
+    # Never block on a credential prompt: this runs detached from the API with no tty, so a
+    # stale token or removed SSH key would hang git forever, the restart would never happen,
+    # and the backend's `applying` claim would sit there until its TTL expired. Fail fast
+    # instead, and cap the whole pull when a `timeout` binary is available.
+    TO=""
+    if command -v timeout >/dev/null 2>&1; then TO="timeout 300"
+    elif command -v gtimeout >/dev/null 2>&1; then TO="gtimeout 300"; fi
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true SSH_ASKPASS=true SSH_ASKPASS_REQUIRE=never \
+      $TO git pull --ff-only --quiet \
+      || { echo "✗ pull failed — diverged from upstream, or the remote/credentials are unavailable" >&2; exit 1; }
+    after=$(git rev-parse HEAD)
+    if [ "$before" = "$after" ]; then echo "already up to date"; exit 0; fi
+    # sync deps ONLY when their lockfiles actually moved, so a code-only update stays fast.
+    # A sync FAILURE aborts before the restart: restarting with deps that don't match the
+    # new lockfiles can leave the backend unable to start or the UI built from half-installed
+    # packages — worse than stopping with the pull already applied (re-run to retry).
+    if ! git diff --quiet "$before" "$after" -- backend/pyproject.toml backend/uv.lock; then
+      echo "→ backend deps changed — uv sync"
+      (cd backend && uv sync --extra dev) || { echo "✗ uv sync failed — not restarting; fix deps then re-run 'conductorctl update'" >&2; exit 1; }
+    fi
+    if ! git diff --quiet "$before" "$after" -- frontend/package-lock.json; then
+      echo "→ frontend deps changed — npm ci"
+      npm --prefix frontend ci >/dev/null 2>&1 || { echo "✗ npm ci failed — not restarting; fix deps then re-run 'conductorctl update'" >&2; exit 1; }
+    fi
+    "$0" restart  # rebuilds the stale frontend + kickstarts the backend (migrations run on startup)
+    echo "updated ${before:0:7} → ${after:0:7}"
+    ;;
+  status)
+    printf "backend : "
+    if loaded; then
+      pid=$(launchctl print "gui/$UID_N/$LABEL" 2>/dev/null | awk '/pid = /{print $3; exit}')
+      echo "loaded (pid ${pid:-?})"
+    else
+      echo "NOT LOADED"
+    fi
+    printf "postgres: "; docker ps --filter name=conductor-postgres --format '{{.Status}}' | head -1 || echo down
+    printf "health  : "; curl -s -m 4 http://127.0.0.1:8787/api/health || echo "(no response)"; echo ""
+    ;;
+  logs)
+    exec tail -F "$LOGDIR/backend.log"
+    ;;
+  db)
+    docker compose -f "$ROOT/docker-compose.yml" up -d postgres >/dev/null
+    for _ in $(seq 1 15); do
+      docker exec conductor-postgres pg_isready -U conductor -d conductor >/dev/null 2>&1 && break
+      sleep 1
+    done
+    ;;
+  doctor)
+    # verify the host has everything Conductor shells out to, and that the CLIs are
+    # authed. Read-only — safe to run anytime.
+    report_commands
+    report_auth
+    echo ""
+    [ "$_missing_cmds" -eq 0 ] \
+      && echo "host tools ok → conductorctl bootstrap" \
+      || echo "$_missing_cmds command(s) missing above — install them (docs/setup.md), then re-run"
+    ;;
+  setup)
+    # one-time onboarding: env file, deps check, Postgres up. Then run install.
+    if [ ! -f "$ROOT/.env" ]; then
+      cp "$ROOT/.env.example" "$ROOT/.env"
+      echo "→ created .env from .env.example — fill in your tokens (Slack optional), then re-run 'conductorctl setup'"
+    fi
+    "$0" doctor
+    "$0" db && echo "postgres: up"
+    echo ""
+    echo "next:"
+    echo "  1) conductorctl install          # start the backend (auto-runs DB migrations)"
+    echo "  2) npm --prefix $ROOT/frontend ci && npm --prefix $ROOT/frontend run build"
+    echo "  3) open http://127.0.0.1:8787"
+    ;;
+  bootstrap)
+    # one command from a fresh clone to a running cockpit. Host tools are CHECKED, not
+    # installed — installing them is on you (or Claude Code reading docs/setup.md). Once
+    # they're present, everything else here is automatable + idempotent, so the loop is:
+    # run bootstrap → install whatever it flags ✗ → run bootstrap again.
+    report_commands
+    if [ "$_missing_cmds" -gt 0 ]; then
+      echo ""
+      echo "✗ $_missing_cmds host tool(s) missing above."
+      echo "  Install them — see docs/setup.md (written for you or Claude Code to follow) —"
+      echo "  then re-run: bin/conductorctl bootstrap"
+      exit 1
+    fi
+    echo ""
+    if [ ! -f "$ROOT/.env" ]; then
+      cp "$ROOT/.env.example" "$ROOT/.env"
+      echo "→ created .env from .env.example (defaults work; review the machine/org vars in it)"
+    else
+      echo "→ .env exists — keeping it"
+    fi
+    # resolve a REAL uv binary. On a pyenv box the PATH `uv` is a cwd-dependent shim that
+    # can miss — it points at whatever python version is active (in backend/ that's the
+    # pinned 3.13, which has no uv). Skip a shim and use a pyenv-version uv: a real binary
+    # that runs from any dir and manages its own target Python. A non-shim PATH uv wins.
+    UV="$(command -v uv 2>/dev/null || true)"
+    case "$UV" in */.pyenv/shims/*) UV="" ;; esac
+    [ -n "$UV" ] || UV="$(ls "$HOME"/.pyenv/versions/*/bin/uv 2>/dev/null | head -1)"
+    [ -n "$UV" ] || { echo "✗ no uv found — install it (see docs/setup.md)"; exit 1; }
+    echo "→ backend venv + deps ($UV sync)"
+    ( cd "$ROOT/backend" && "$UV" sync --extra dev )
+    echo "→ postgres"
+    "$0" db && echo "  postgres up"
+    echo "→ frontend build (npm ci + build)"
+    npm --prefix "$ROOT/frontend" ci && npm --prefix "$ROOT/frontend" run build
+    echo "→ launchd install (backend + daily backup)"
+    "$0" install
+    echo ""
+    report_auth
+    echo ""
+    echo "bootstrap done → open http://127.0.0.1:8787  (board empty? finish the CLI logins above)"
+    ;;
+  *)
+    echo "usage: conductorctl {bootstrap|setup|doctor|install|start|stop|restart|status|logs|db|backup}" >&2
+    exit 1
+    ;;
+esac

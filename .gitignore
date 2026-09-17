@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Env / secrets
+.env
+*.local
+
+# OS
+.DS_Store
+
+# Postgres volume (if mounted locally)
+.pgdata/
+
+# Local plugins — personal, per-machine, never shared. Drop a plugin package in either
+# dir and it's discovered at runtime (backend) / merged into the layout registry (FE)
+# without touching core. See docs/plugins.md. (The orchestrator lives here as the demo.)
+backend/conductor/plugins/local/
+frontend/src/plugins/local/
