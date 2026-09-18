@@ -6,6 +6,10 @@ import { HoverCard } from "../ui/HoverCard";
 // Claude Code usage in the header: current-session (5h) + weekly (7d) percentages.
 // Hover (desktop) / tap (touch) opens the project HoverCard with each window's used%
 // + reset time. Sourced from /api/usage (the statusline snapshot).
+//
+// The snapshot only refreshes when a Claude session renders its statusline, so a window
+// that has rolled over arrives flagged `expired` with a null percentage — show "—", not
+// the pre-reset number the file still carries.
 
 function color(pct?: number | null): string {
   if (pct == null) return "text-zinc-500";
@@ -14,9 +18,15 @@ function color(pct?: number | null): string {
   return "text-emerald-400";
 }
 
-function resetText(epoch?: number | null): string {
+function resetText(epoch?: number | null, expired?: boolean): string {
   if (!epoch) return "reset time unknown";
   const ms = epoch * 1000;
+  const t0 = new Date(ms).toLocaleString(undefined, {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  if (expired) return `reset ${t0} — waiting for a session to report`;
   const diff = ms - Date.now();
   const mins = Math.round(diff / 60000);
   const rel =
@@ -58,9 +68,11 @@ function DetailRow({ kind, data }: { kind: string; data: UsageWindow }) {
     <div className="flex flex-col">
       <span className="text-zinc-400">{kind}</span>
       <span className={color(data?.used_percentage)}>
-        {text == null
-          ? "no data yet — needs an active Claude session to report"
-          : `${text} used · ${resetText(data?.resets_at)}`}
+        {data?.expired
+          ? resetText(data?.resets_at, true)
+          : text == null
+            ? "no data yet — needs an active Claude session to report"
+            : `${text} used · ${resetText(data?.resets_at)}`}
       </span>
     </div>
   );

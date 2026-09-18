@@ -238,7 +238,13 @@ export const getHotkeys = () => {
   return _hotkeys;
 };
 
-export type UsageWindow = { used_percentage: number | null; resets_at: number | null } | null;
+// `expired`: resets_at has passed but no Claude session has reported the new window
+// yet, so used_percentage is null instead of the stale pre-reset number.
+export type UsageWindow = {
+  used_percentage: number | null;
+  resets_at: number | null;
+  expired?: boolean;
+} | null;
 export type Usage = { session: UsageWindow; weekly: UsageWindow; captured_at: number | null };
 export const getUsage = () => fetch("/api/usage").then(j<Usage>);
 
